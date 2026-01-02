@@ -1,0 +1,837 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <!-- CẤU HÌNH CHO IOS / MOBILE -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Chi Tiêu Pro">
+    
+    <title>Quản Lý Chi Tiêu - Final Stable</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <!-- SheetJS (Excel) -->
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+    
+    <!-- FIREBASE INIT (SAFE MODE + MANUAL CONFIG) -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, addDoc, doc, deleteDoc, onSnapshot, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Khởi tạo biến toàn cục
+        window.isFirebaseReady = false;
+
+        try {
+            // --- CẤU HÌNH FIREBASE (ĐÃ THÊM KEY CỦA BẠN VÀO ĐÂY) ---
+            const hardcodedConfig = {
+                apiKey: "AIzaSyADN0-ME1iLd2cKCaSQ6gg-xCuYzqLVOuk",
+                authDomain: "quanlychitieu-43b93.firebaseapp.com",
+                projectId: "quanlychitieu-43b93",
+                storageBucket: "quanlychitieu-43b93.firebasestorage.app",
+                messagingSenderId: "108162857222",
+                appId: "1:108162857222:web:b1e491a6203bc91f3a4687",
+                measurementId: "G-VV0WXLLB9F"
+            };
+
+            // 1. Xác định cấu hình để sử dụng
+            let firebaseConfig = null;
+            let appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+
+            // Ưu tiên 1: Biến môi trường (nếu có)
+            if (typeof __firebase_config !== 'undefined') {
+                try {
+                    firebaseConfig = JSON.parse(__firebase_config);
+                } catch (e) { console.error("Lỗi parse env config", e); }
+            }
+            
+            // Ưu tiên 2: Cấu hình cứng (Hardcoded) - Sử dụng key bạn vừa cung cấp
+            if (!firebaseConfig && hardcodedConfig.apiKey) {
+                firebaseConfig = hardcodedConfig;
+            }
+
+            // Ưu tiên 3: LocalStorage (nếu người dùng muốn override bằng tay)
+            if (!firebaseConfig) {
+                 const localConfig = localStorage.getItem('custom_firebase_config');
+                 if (localConfig) {
+                    try { firebaseConfig = JSON.parse(localConfig); } catch(e) {}
+                 }
+            }
+
+            if (firebaseConfig) {
+                try {
+                    const app = initializeApp(firebaseConfig);
+                    
+                    // Expose Firebase services
+                    window.auth = getAuth(app);
+                    window.db = getFirestore(app);
+                    window.appId = appId;
+                    
+                    // Expose Functions
+                    window.signInWithEmailAndPassword = signInWithEmailAndPassword;
+                    window.createUserWithEmailAndPassword = createUserWithEmailAndPassword;
+                    window.signOut = signOut;
+                    window.collection = collection;
+                    window.addDoc = addDoc;
+                    window.doc = doc;
+                    window.deleteDoc = deleteDoc;
+                    window.onSnapshot = onSnapshot;
+                    window.setDoc = setDoc;
+                    window.getDoc = getDoc;
+                    
+                    window.isFirebaseReady = true;
+                    console.log("Firebase initialized successfully");
+                } catch (initErr) {
+                    console.error("Lỗi khởi tạo Firebase:", initErr);
+                    // Hiển thị alert nếu lỗi khởi tạo
+                    setTimeout(() => alert("⚠️ Lỗi khởi tạo Firebase: " + initErr.message), 1000);
+                }
+            } else {
+                console.warn("Chưa có cấu hình Firebase. Chạy Offline.");
+            }
+        } catch (e) {
+            console.error("Lỗi chung Firebase:", e);
+            // Vẫn chạy tiếp ở chế độ Offline
+        }
+    </script>
+
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #f8fafc; -webkit-tap-highlight-color: transparent; }
+        .card { background: white; border-radius: 12px; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1); }
+        .input-field { border: 1px solid #e2e8f0; border-radius: 6px; padding: 10px 12px; width: 100%; transition: all 0.2s; font-size: 16px; /* Font 16px tránh auto-zoom iOS */ }
+        .input-field:focus { border-color: #3b82f6; outline: none; ring: 2px solid #3b82f6; }
+        th { background-color: #f1f5f9; text-align: left; padding: 12px; font-weight: 600; color: #475569; }
+        td { padding: 12px; border-bottom: 1px solid #f1f5f9; }
+        .budget-row:hover { background-color: #f8fafc; }
+        
+        /* Modal Styles */
+        .modal { display: none; position: fixed; z-index: 50; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.5); backdrop-filter: blur(2px); }
+        .modal-content { background-color: #fefefe; margin: 10% auto; padding: 24px; border: 1px solid #888; width: 90%; max-width: 500px; border-radius: 16px; box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.1); }
+        
+        /* Toast Notification */
+        #toast { visibility: hidden; min-width: 250px; margin-left: -125px; background-color: #333; color: #fff; text-align: center; border-radius: 8px; padding: 16px; position: fixed; z-index: 100; left: 50%; bottom: 30px; font-size: 14px; opacity: 0; transition: opacity 0.5s, bottom 0.5s; }
+        #toast.show { visibility: visible; opacity: 1; bottom: 50px; }
+        #toast.success { background-color: #10b981; }
+        #toast.error { background-color: #ef4444; }
+        #toast.info { background-color: #3b82f6; }
+
+        .auth-status { font-size: 13px; padding: 4px 12px; border-radius: 20px; display: inline-flex; items-center; gap: 6px; }
+        .auth-guest { background: #f1f5f9; color: #64748b; }
+        .auth-user { background: #dbeafe; color: #1e40af; border: 1px solid #bfdbfe; }
+    </style>
+</head>
+<body class="p-4 md:p-8 pb-20">
+    <div class="max-w-6xl mx-auto">
+        <!-- HEADER -->
+        <div class="flex flex-col md:flex-row justify-between items-center mb-8 gap-4">
+            <div>
+                <div class="flex items-center gap-2">
+                    <h1 class="text-2xl font-bold text-slate-800">📊 Quản Lý Chi Tiêu</h1>
+                    <button onclick="openSettings()" class="text-slate-400 hover:text-slate-600 p-1" title="Cài đặt">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.1a2 2 0 0 1-1-1.72v-.51a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
+                    </button>
+                </div>
+                
+                <!-- AUTH STATUS AREA -->
+                <div id="authContainer" class="mt-2 flex items-center gap-2">
+                    <span id="userDisplay" class="auth-status auth-guest">
+                        👤 Đang tải...
+                    </span>
+                    <!-- Các nút đăng nhập/đăng xuất -->
+                    <button id="btnLogin" onclick="openLoginModal()" class="hidden text-sm text-blue-600 hover:underline font-medium">Đăng nhập</button>
+                    <button id="btnConnectCloud" onclick="openSettings()" class="hidden text-sm text-blue-600 hover:underline font-medium flex items-center gap-1">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"></path><line x1="12" y1="2" x2="12" y2="12"></line></svg>
+                        Kết nối Cloud
+                    </button>
+                    <button id="btnLogout" onclick="handleLogout()" class="hidden text-sm text-red-500 hover:underline">Đăng xuất</button>
+                </div>
+
+                <p id="incomeDisplay" class="text-slate-500 mt-1 text-sm font-medium">Ngân sách: ...</p>
+            </div>
+
+            <div class="flex flex-wrap items-center gap-3">
+                <select id="monthFilter" onchange="updateUI()" class="bg-white border border-slate-300 text-slate-700 py-2 px-4 rounded-lg focus:outline-none focus:border-blue-500 text-sm">
+                    <option value="all">Tất cả thời gian</option>
+                </select>
+                <button onclick="copyToGoogleSheets()" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-lg text-sm font-medium border border-blue-700">Copy Sheet</button>
+                <button onclick="downloadTemplate()" class="bg-slate-200 hover:bg-slate-300 text-slate-700 px-3 py-2 rounded-lg text-sm font-medium">📂 Tải Mẫu</button>
+                <input type="file" id="fileInput" accept=".xlsx" class="hidden" onchange="appendDataToExcel(this)">
+                <button onclick="document.getElementById('fileInput').click()" class="bg-green-600 hover:bg-green-700 text-white px-3 py-2 rounded-lg text-sm font-medium">Nhập Excel</button>
+            </div>
+        </div>
+
+        <!-- DASHBOARD STATS -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+            <div class="card p-6 border-l-4 border-green-500">
+                <h3 class="text-slate-500 text-xs font-bold uppercase tracking-wider">Tổng Đã Chi</h3>
+                <p id="totalSpent" class="text-2xl font-bold text-slate-800">0đ</p>
+                <p id="filterLabel" class="text-xs text-slate-400 mt-1">...</p>
+            </div>
+            <div class="card p-6 border-l-4 border-blue-500">
+                <h3 class="text-slate-500 text-xs font-bold uppercase tracking-wider">Số Dư Còn Lại</h3>
+                <p id="totalRemaining" class="text-2xl font-bold text-blue-600">0đ</p>
+            </div>
+            <div class="card p-6 border-l-4 border-yellow-500">
+                <h3 class="text-slate-500 text-xs font-bold uppercase tracking-wider">Tiến độ chi tiêu</h3>
+                <p id="spendingRate" class="text-2xl font-bold text-slate-800">0%</p>
+            </div>
+        </div>
+
+        <!-- MAIN CONTENT GRID -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            <div class="lg:col-span-2 space-y-8">
+                <!-- BUDGET TABLE -->
+                <div class="card overflow-hidden">
+                    <div class="p-4 border-b bg-slate-50 font-bold text-slate-700 flex justify-between items-center">
+                        <span>Tình Trạng Ngân Sách</span>
+                        <span class="text-xs font-normal text-slate-500 bg-white px-2 py-1 rounded border">Cảnh báo > 90%</span>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-sm text-left">
+                            <thead>
+                                <tr>
+                                    <th class="w-[35%]">Hạng mục</th>
+                                    <th class="w-[20%]">Ngân sách</th>
+                                    <th class="w-[20%]">Đã chi</th>
+                                    <th class="w-[25%]">Còn lại</th>
+                                </tr>
+                            </thead>
+                            <tbody id="budgetBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- ADD TRANSACTION FORM -->
+                <div class="card p-6">
+                    <h2 class="text-lg font-bold mb-4 text-slate-800">Thêm Giao Dịch Mới</h2>
+                    <form id="transactionForm" class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                        <div class="md:col-span-2"> 
+                            <label class="block text-xs font-bold text-slate-500 mb-1 uppercase">Nội dung</label>
+                            <input type="text" id="desc" class="input-field" placeholder="Ví dụ: Ăn trưa..." required>
+                        </div>
+                        <div class="relative">
+                            <label class="block text-xs font-bold text-slate-500 mb-1 uppercase">Số tiền (đ)</label>
+                            <input type="number" id="amount" class="input-field" placeholder="0" required autocomplete="off" inputmode="numeric" pattern="[0-9]*">
+                            <div id="amountSuggestions" class="absolute z-20 w-full bg-white border border-slate-200 rounded-lg shadow-xl mt-1 hidden max-h-48 overflow-y-auto"></div>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-slate-500 mb-1 uppercase">Phân loại</label>
+                            <select id="category" class="input-field">
+                                <option value="fixed">Cố định (31.5%)</option>
+                                <option value="emergency">Khẩn cấp (10%)</option>
+                                <option value="longterm">Đầu tư dài hạn (20%)</option>
+                                <option value="shortterm">Đầu tư ngắn hạn (15%)</option>
+                                <option value="leisure">Giải trí (10%)</option>
+                                <option value="flex">Linh hoạt (13.5%)</option>
+                            </select>
+                        </div>
+                        <div class="md:col-span-4 mt-2">
+                            <button type="submit" id="btnAdd" class="w-full bg-slate-800 text-white py-3 rounded-lg hover:bg-slate-700 transition font-semibold shadow-lg flex justify-center items-center gap-2">
+                                <span>Thêm Giao Dịch</span>
+                            </button>
+                        </div>
+                    </form>
+                </div>
+
+                <!-- HISTORY TABLE -->
+                <div class="card p-6">
+                    <div class="flex justify-between items-center mb-4">
+                        <h2 class="text-lg font-bold text-slate-800">Lịch Sử Chi Tiêu</h2>
+                        <button onclick="clearAllData()" class="text-xs text-red-500 hover:text-red-700 hover:underline">Xóa tất cả</button>
+                    </div>
+                    <div class="max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
+                        <table class="w-full text-sm">
+                            <thead class="sticky top-0 bg-white shadow-sm z-10">
+                                <tr class="text-slate-400 border-b">
+                                    <th class="bg-white px-0 py-2">Ngày</th>
+                                    <th class="bg-white px-0 py-2">Nội dung</th>
+                                    <th class="bg-white px-0 py-2 text-right">Số tiền</th>
+                                    <th class="bg-white px-0 py-2 text-right">#</th>
+                                </tr>
+                            </thead>
+                            <tbody id="historyBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- RIGHT SIDEBAR -->
+            <div class="space-y-8">
+                <div class="card p-6 flex flex-col items-center">
+                    <h2 class="text-lg font-bold mb-4 text-slate-800 text-center">Phân Bổ Chi Tiêu</h2>
+                    <div class="w-full h-[300px] relative">
+                        <canvas id="budgetChart"></canvas>
+                    </div>
+                </div>
+
+                <div class="card p-6 bg-slate-800 text-white shadow-xl">
+                    <h2 class="text-lg font-bold mb-3 flex items-center gap-2">
+                        <span>💡 Đồng bộ iPhone/iPad</span>
+                    </h2>
+                    <p id="syncStatus" class="text-sm opacity-90 leading-relaxed mb-2">Đang khởi tạo...</p>
+                    <ul class="text-xs space-y-2 opacity-75">
+                        <li>• Mở trang web này trên Safari (iOS).</li>
+                        <li>• Đăng nhập cùng tài khoản để thấy dữ liệu ngay.</li>
+                        <li>• Bấm nút <b>Chia sẻ</b> -> <b>Thêm vào MH chính</b> để dùng như App.</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL SETTINGS -->
+    <div id="settingsModal" class="modal">
+        <div class="modal-content shadow-2xl animate-[fadeIn_0.2s_ease-out]">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-xl font-bold">Cài Đặt Hệ Thống</h2>
+                <button onclick="closeSettings()" class="text-2xl text-slate-400 hover:text-slate-600">&times;</button>
+            </div>
+            
+            <div class="space-y-4 max-h-[60vh] overflow-y-auto pr-2">
+                <!-- 1. Thu nhập -->
+                <div>
+                    <label class="block text-sm font-semibold mb-2 text-slate-700">1. Tổng thu nhập (VNĐ)</label>
+                    <input type="number" id="settingIncome" class="input-field text-lg font-bold text-blue-600">
+                </div>
+                
+                <!-- 2. Webhook -->
+                <div class="border-t pt-4">
+                    <label class="block text-sm font-semibold mb-2 text-slate-700">2. Webhook URL (Make/Integromat)</label>
+                    <input type="text" id="settingWebhook" class="input-field text-sm font-mono" placeholder="https://hook.make.com/...">
+                </div>
+
+                <!-- 3. Firebase Config (NEW) -->
+                <div class="border-t pt-4 bg-slate-50 p-3 rounded-lg border border-slate-200">
+                    <label class="block text-sm font-bold mb-2 text-slate-800 flex items-center gap-2">
+                        <span>🔥 3. Cấu hình Firebase (Nâng cao)</span>
+                    </label>
+                    <p class="text-xs text-slate-500 mb-2">Bạn có thể copy toàn bộ đoạn <code>const firebaseConfig = { ... };</code> và dán vào đây:</p>
+                    <textarea id="settingFirebaseConfig" class="input-field text-xs font-mono h-24" placeholder='const firebaseConfig = { apiKey: "...", ... };'></textarea>
+                    <button onclick="clearCustomConfig()" class="text-xs text-red-500 hover:underline mt-1">Xóa cấu hình & Reset</button>
+                </div>
+            </div>
+
+            <div class="flex gap-3 justify-end mt-6">
+                <button onclick="closeSettings()" class="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg">Hủy</button>
+                <button onclick="saveSettings()" class="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 shadow font-semibold">Lưu & Kết nối</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL LOGIN/REGISTER -->
+    <div id="loginModal" class="modal">
+        <div class="modal-content shadow-2xl">
+            <div class="flex justify-between items-center mb-6">
+                <h2 class="text-xl font-bold text-slate-800">Đăng nhập / Đăng ký</h2>
+                <button onclick="document.getElementById('loginModal').style.display='none'" class="text-2xl text-slate-400">&times;</button>
+            </div>
+            
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">Email</label>
+                    <input type="email" id="authEmail" class="input-field" placeholder="email@example.com">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">Mật khẩu</label>
+                    <input type="password" id="authPassword" class="input-field" placeholder="******">
+                </div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-3 mt-6">
+                <button onclick="handleLogin()" class="bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg font-medium transition">Đăng Nhập</button>
+                <button onclick="handleRegister()" class="bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 py-2 rounded-lg font-medium transition">Đăng Ký Mới</button>
+            </div>
+            <p id="authError" class="text-red-500 text-sm mt-3 text-center hidden"></p>
+        </div>
+    </div>
+
+    <!-- TOAST -->
+    <div id="toast">Thông báo</div>
+
+    <script type="module">
+        import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        
+        let unsubscribeData = null; 
+
+        window.onload = function() {
+            // Hiển thị nút "Kết nối Cloud" nếu chưa có Firebase
+            if (!window.isFirebaseReady) {
+                console.log("Chạy chế độ Offline (Firebase not ready)");
+                initOfflineMode();
+                return;
+            }
+
+            onAuthStateChanged(window.auth, async (user) => {
+                const userDisplay = document.getElementById('userDisplay');
+                const btnLogin = document.getElementById('btnLogin');
+                const btnLogout = document.getElementById('btnLogout');
+                const btnConnect = document.getElementById('btnConnectCloud');
+                const syncStatus = document.getElementById('syncStatus');
+
+                window.currentUser = user;
+
+                // Ẩn nút connect vì đã ready
+                btnConnect.classList.add('hidden');
+
+                if (user) {
+                    // ĐÃ ĐĂNG NHẬP
+                    userDisplay.innerHTML = `☁️ ${user.email}`;
+                    userDisplay.className = 'auth-status auth-user';
+                    btnLogin.classList.add('hidden');
+                    btnLogout.classList.remove('hidden');
+                    syncStatus.innerText = "Đã kết nối Cloud. Dữ liệu đang được đồng bộ.";
+                    syncStatus.className = "text-sm text-green-300 mb-2";
+                    
+                    showToast(`Xin chào ${user.email}`, 'info');
+
+                    await loadDataFromCloud(user.uid);
+                } else {
+                    // CHƯA ĐĂNG NHẬP
+                    userDisplay.innerHTML = `👤 Khách (Lưu cục bộ)`;
+                    userDisplay.className = 'auth-status auth-guest';
+                    btnLogin.classList.remove('hidden');
+                    btnLogout.classList.add('hidden');
+                    syncStatus.innerText = "Đang dùng bộ nhớ máy. Đăng nhập để sao lưu.";
+                    syncStatus.className = "text-sm text-yellow-300 mb-2";
+
+                    if (unsubscribeData) unsubscribeData();
+                    loadDataFromLocal();
+                }
+            });
+        };
+
+        function initOfflineMode() {
+            const userDisplay = document.getElementById('userDisplay');
+            const syncStatus = document.getElementById('syncStatus');
+            const btnLogin = document.getElementById('btnLogin');
+            const btnConnect = document.getElementById('btnConnectCloud');
+
+            userDisplay.innerHTML = `👤 Offline Mode`;
+            userDisplay.className = 'auth-status auth-guest';
+            btnLogin.classList.add('hidden'); 
+            // HIỆN NÚT KẾT NỐI
+            btnConnect.classList.remove('hidden');
+
+            syncStatus.innerText = "Chế độ Offline (Chưa cấu hình Cloud).";
+            syncStatus.className = "text-sm text-slate-400 mb-2";
+            
+            // Tải dữ liệu Local
+            loadDataFromLocal();
+        }
+    </script>
+
+    <script>
+        // --- CẤU HÌNH & DỮ LIỆU ---
+        const budgetRatios = {
+            fixed: { name: 'Cố định', percent: 0.315, color: '#64748b' },
+            emergency: { name: 'Khẩn cấp', percent: 0.10, color: '#f59e0b' },
+            longterm: { name: 'Đầu tư dài hạn', percent: 0.20, color: '#10b981' },
+            shortterm: { name: 'Đầu tư ngắn hạn', percent: 0.15, color: '#3b82f6' },
+            leisure: { name: 'Giải trí', percent: 0.10, color: '#ec4899' },
+            flex: { name: 'Linh hoạt', percent: 0.135, color: '#8b5cf6' }
+        };
+
+        let transactions = [];
+        let totalIncome = 9500000;
+        let webhookUrl = '';
+        let budgetConfig = {};
+
+        function formatMoney(amount) {
+            return new Intl.NumberFormat('vi-VN').format(amount) + 'đ';
+        }
+
+        function getMonthYear(dateStr) {
+            if(!dateStr) return "";
+            if(dateStr.length > 10) return dateStr.substring(3, 10); 
+            return dateStr.substring(3); 
+        }
+
+        // --- DATA HANDLERS ---
+        function loadDataFromLocal() {
+            try {
+                transactions = JSON.parse(localStorage.getItem('transactions')) || [];
+                totalIncome = parseFloat(localStorage.getItem('totalIncome')) || 9500000;
+                webhookUrl = localStorage.getItem('webhookUrl') || '';
+                updateMonthFilterOptions();
+                updateUI();
+            } catch (e) { console.error("Lỗi đọc LocalStorage", e); }
+        }
+
+        async function loadDataFromCloud(userId) {
+            if (!window.db) return;
+            const transRef = window.collection(window.db, 'artifacts', window.appId, 'users', userId, 'transactions');
+            if (window.unsubscribeData) window.unsubscribeData();
+
+            window.unsubscribeData = window.onSnapshot(transRef, (snapshot) => {
+                transactions = [];
+                snapshot.forEach(doc => { transactions.push({ id: doc.id, ...doc.data() }); });
+                transactions.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+                updateMonthFilterOptions();
+                updateUI();
+            }, (error) => { showToast("Lỗi đồng bộ dữ liệu!", "error"); });
+
+            const settingsRef = window.doc(window.db, 'artifacts', window.appId, 'users', userId, 'settings', 'config');
+            try {
+                const docSnap = await window.getDoc(settingsRef);
+                if (docSnap.exists()) {
+                    const data = docSnap.data();
+                    if (data.totalIncome) totalIncome = data.totalIncome;
+                    if (data.webhookUrl) webhookUrl = data.webhookUrl;
+                } else { await window.setDoc(settingsRef, { totalIncome: 9500000, webhookUrl: '' }); }
+                updateUI();
+            } catch (e) { console.error("Lỗi tải settings:", e); }
+        }
+
+        // --- AUTH FUNCTIONS ---
+        function openLoginModal() {
+            document.getElementById('loginModal').style.display = 'block';
+            document.getElementById('authError').classList.add('hidden');
+        }
+        async function handleLogin() {
+            if (!window.auth) return alert("Hệ thống chưa sẵn sàng");
+            const email = document.getElementById('authEmail').value;
+            const pass = document.getElementById('authPassword').value;
+            try {
+                await window.signInWithEmailAndPassword(window.auth, email, pass);
+                document.getElementById('loginModal').style.display = 'none';
+            } catch (error) { showError(error.message); }
+        }
+        async function handleRegister() {
+            if (!window.auth) return alert("Hệ thống chưa sẵn sàng");
+            const email = document.getElementById('authEmail').value;
+            const pass = document.getElementById('authPassword').value;
+            try {
+                await window.createUserWithEmailAndPassword(window.auth, email, pass);
+                document.getElementById('loginModal').style.display = 'none';
+                showToast("Đăng ký thành công!", "success");
+            } catch (error) { showError(error.message); }
+        }
+        async function handleLogout() {
+            if(confirm("Bạn có chắc muốn đăng xuất?")) await window.signOut(window.auth);
+        }
+        function showError(msg) {
+            const errEl = document.getElementById('authError');
+            errEl.innerText = "Lỗi: " + msg;
+            errEl.classList.remove('hidden');
+        }
+
+        // --- CORE LOGIC ---
+        document.getElementById('transactionForm').onsubmit = async (e) => {
+            e.preventDefault();
+            const btn = document.getElementById('btnAdd');
+            btn.disabled = true;
+            btn.innerText = "Đang xử lý...";
+
+            const desc = document.getElementById('desc').value;
+            const amount = parseFloat(document.getElementById('amount').value);
+            const category = document.getElementById('category').value;
+            calculateBudgets();
+            checkBudgetWarning(category, amount);
+
+            const now = new Date();
+            // FIX DATE: Tự format để đồng nhất trên mọi thiết bị (đặc biệt iOS Safari)
+            const d = now.getDate().toString().padStart(2, '0');
+            const m = (now.getMonth() + 1).toString().padStart(2, '0');
+            const y = now.getFullYear();
+            const time = now.toLocaleTimeString('vi-VN', {hour: '2-digit', minute: '2-digit'});
+            const dateStr = `${d}/${m}/${y} ${time}`;
+            
+            const newTransaction = { desc, amount, category, date: dateStr, timestamp: now.toISOString() };
+
+            try {
+                if (window.currentUser && window.db) {
+                    const colRef = window.collection(window.db, 'artifacts', window.appId, 'users', window.currentUser.uid, 'transactions');
+                    await window.addDoc(colRef, newTransaction);
+                } else {
+                    transactions.push(newTransaction);
+                    localStorage.setItem('transactions', JSON.stringify(transactions));
+                    updateMonthFilterOptions();
+                    updateUI();
+                }
+                if(webhookUrl) sendToWebhook(newTransaction, 'add');
+                e.target.reset();
+                showToast("Đã thêm giao dịch!", "success");
+            } catch (err) { console.error(err); showToast("Lỗi: " + err.message, "error"); } 
+            finally { btn.disabled = false; btn.innerHTML = `<span>Thêm Giao Dịch</span>`; }
+        };
+
+        async function handleDelete(idOrIndex) {
+            if(!confirm('Xóa giao dịch này?')) return;
+            let itemToDelete = null;
+
+            if (window.currentUser && window.db) {
+                itemToDelete = transactions.find(t => t.id === idOrIndex);
+                if (itemToDelete) {
+                    try { await window.deleteDoc(window.doc(window.db, 'artifacts', window.appId, 'users', window.currentUser.uid, 'transactions', idOrIndex)); } 
+                    catch(e) { showToast("Lỗi xóa Cloud: " + e.message, "error"); return; }
+                }
+            } else {
+                itemToDelete = transactions[idOrIndex];
+                if (itemToDelete) {
+                    transactions.splice(idOrIndex, 1);
+                    localStorage.setItem('transactions', JSON.stringify(transactions));
+                    updateUI();
+                }
+            }
+            if (itemToDelete && webhookUrl) sendToWebhook(itemToDelete, 'delete');
+        }
+
+        function calculateBudgets() {
+            document.getElementById('incomeDisplay').innerText = `Ngân sách: ${formatMoney(totalIncome)}`;
+            for (let key in budgetRatios) {
+                budgetConfig[key] = { ...budgetRatios[key], budget: totalIncome * budgetRatios[key].percent };
+            }
+        }
+
+        function updateMonthFilterOptions() {
+            const filterSelect = document.getElementById('monthFilter');
+            const currentVal = filterSelect.value;
+            const months = [...new Set(transactions.map(t => getMonthYear(t.date)))];
+            months.sort((a, b) => {
+                if(!a || !b) return 0;
+                const [m1, y1] = a.split('/').map(Number);
+                const [m2, y2] = b.split('/').map(Number);
+                return (y2 - y1) || (m2 - m1);
+            });
+            filterSelect.innerHTML = '<option value="all">Tất cả thời gian</option>';
+            const today = new Date();
+            const currentMonthStr = `${String(today.getMonth()+1).padStart(2, '0')}/${today.getFullYear()}`;
+            if (!months.includes(currentMonthStr) && transactions.length > 0) {} // Logic hiển thị
+            months.forEach(m => {
+                const opt = document.createElement('option');
+                opt.value = m; opt.innerText = `Tháng ${m}`; filterSelect.appendChild(opt);
+            });
+            if (months.includes(currentVal) || currentVal === 'all') filterSelect.value = currentVal;
+        }
+
+        function updateUI() {
+            calculateBudgets();
+            const historyBody = document.getElementById('historyBody');
+            const budgetBody = document.getElementById('budgetBody');
+            const filterVal = document.getElementById('monthFilter').value;
+            let displayList = [...transactions].reverse();
+            if (filterVal !== 'all') {
+                displayList = displayList.filter(t => getMonthYear(t.date) === filterVal);
+                document.getElementById('filterLabel').innerText = `Dữ liệu Tháng ${filterVal}`;
+            } else { document.getElementById('filterLabel').innerText = `Dữ liệu toàn thời gian`; }
+
+            const categorySpent = { fixed: 0, emergency: 0, longterm: 0, shortterm: 0, leisure: 0, flex: 0 };
+            let totalSpent = 0;
+            historyBody.innerHTML = '';
+            
+            displayList.forEach((t) => {
+                const val = parseFloat(t.amount) || 0;
+                if (categorySpent[t.category] !== undefined) categorySpent[t.category] += val;
+                totalSpent += val;
+                const originalIndex = transactions.indexOf(t);
+                const deleteParam = window.currentUser ? `'${t.id}'` : originalIndex;
+                const [datePart, timePart] = t.date.split(' ');
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td class="py-3 text-slate-500 text-xs">
+                        <div class="font-medium">${datePart}</div>
+                        <div class="text-[10px] opacity-75">${timePart || ''}</div>
+                    </td>
+                    <td class="py-3 font-medium">
+                        <div class="truncate max-w-[120px]" title="${t.desc}">${t.desc}</div>
+                        <span class="text-[10px] bg-slate-100 px-1 rounded text-slate-400">${budgetConfig[t.category].name}</span>
+                    </td>
+                    <td class="py-3 text-right font-bold text-red-500">-${formatMoney(val)}</td>
+                    <td class="py-3 text-right">
+                        <button onclick="handleDelete(${deleteParam})" class="text-slate-300 hover:text-red-500 p-1">✕</button>
+                    </td>
+                `;
+                historyBody.appendChild(row);
+            });
+
+            budgetBody.innerHTML = '';
+            for (const key in budgetConfig) {
+                const conf = budgetConfig[key];
+                const spent = categorySpent[key];
+                const remaining = conf.budget - spent;
+                const percent = (spent / conf.budget) * 100;
+                let barColor = 'bg-blue-500';
+                let statusClass = 'text-green-600';
+                if (percent >= 90) { barColor = 'bg-red-500'; statusClass = 'text-red-600 font-bold'; }
+                else if (percent >= 75) { barColor = 'bg-yellow-500'; statusClass = 'text-yellow-600'; }
+                const row = document.createElement('tr');
+                row.className = 'budget-row';
+                row.innerHTML = `
+                    <td>
+                        <div class="font-bold text-slate-700">${conf.name}</div>
+                        <div class="w-full bg-gray-200 rounded-full h-1.5 mt-2"><div class="h-1.5 rounded-full ${barColor} transition-all duration-500" style="width: ${Math.min(percent, 100)}%"></div></div>
+                    </td>
+                    <td class="text-slate-500 text-xs">${formatMoney(conf.budget)}</td>
+                    <td class="text-slate-800 font-medium text-xs">${formatMoney(spent)}</td>
+                    <td class="${statusClass} font-bold text-xs">${formatMoney(remaining)}</td>
+                `;
+                budgetBody.appendChild(row);
+            }
+            document.getElementById('totalSpent').innerText = formatMoney(totalSpent);
+            document.getElementById('totalRemaining').innerText = formatMoney(totalIncome - totalSpent);
+            const rate = totalIncome > 0 ? (totalSpent / totalIncome) * 100 : 0;
+            document.getElementById('spendingRate').innerText = rate.toFixed(1) + '%';
+            document.getElementById('spendingRate').style.color = rate > 90 ? '#ef4444' : '#1e293b';
+            updateChart(categorySpent);
+        }
+
+        function sendToWebhook(data, actionType = 'add') {
+            const isDelete = actionType === 'delete';
+            const signedAmount = isDelete ? -Math.abs(data.amount) : Math.abs(data.amount);
+            const statusSymbol = isDelete ? '-' : '+';
+            const payload = { ...data, categoryName: budgetConfig[data.category].name, formattedAmount: formatMoney(data.amount), realAmount: signedAmount, status: statusSymbol, action: actionType };
+            fetch(webhookUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+            .catch(error => console.error('Webhook Error:', error));
+        }
+
+        // --- SETTINGS LOGIC ---
+        function openSettings() {
+            document.getElementById('settingIncome').value = totalIncome;
+            document.getElementById('settingWebhook').value = webhookUrl;
+            // Load custom config if exists
+            const customConfig = localStorage.getItem('custom_firebase_config');
+            if(customConfig) document.getElementById('settingFirebaseConfig').value = customConfig;
+            document.getElementById('settingsModal').style.display = "block";
+        }
+        function closeSettings() { document.getElementById('settingsModal').style.display = "none"; }
+        
+        async function saveSettings() {
+            const newIncome = parseFloat(document.getElementById('settingIncome').value);
+            const newWebhook = document.getElementById('settingWebhook').value.trim();
+            let newFirebaseConfig = document.getElementById('settingFirebaseConfig').value.trim();
+
+            if (newIncome && newIncome > 0) totalIncome = newIncome;
+            webhookUrl = newWebhook;
+
+            // Xử lý Custom Config (Tự động sửa lỗi copy JS object)
+            if(newFirebaseConfig) {
+                // 1. Nếu có dấu =, lấy phần sau dấu =
+                if(newFirebaseConfig.indexOf('=') > -1) {
+                    newFirebaseConfig = newFirebaseConfig.split('=')[1];
+                }
+                // 2. Xóa dấu chấm phẩy ở cuối
+                newFirebaseConfig = newFirebaseConfig.trim().replace(/;$/, '');
+
+                try {
+                    // Thử parse chuẩn
+                    JSON.parse(newFirebaseConfig);
+                    localStorage.setItem('custom_firebase_config', newFirebaseConfig);
+                } catch (e) {
+                    // Nếu lỗi (do key ko có ngoặc kép), dùng Function để parse loose JSON
+                    try {
+                        const relaxedObj = new Function("return " + newFirebaseConfig)();
+                        newFirebaseConfig = JSON.stringify(relaxedObj); // Lưu lại dạng chuẩn
+                        localStorage.setItem('custom_firebase_config', newFirebaseConfig);
+                    } catch(err2) {
+                        alert("Cấu hình không hợp lệ! Vui lòng chỉ copy đoạn object { ... }.\nLỗi: " + err2.message);
+                        return;
+                    }
+                }
+            }
+
+            if (window.currentUser) {
+                try { await window.setDoc(window.doc(window.db, 'artifacts', window.appId, 'users', window.currentUser.uid, 'settings', 'config'), { totalIncome: totalIncome, webhookUrl: webhookUrl }); showToast("Đã đồng bộ lên Cloud!", "success"); } 
+                catch(e) { showToast("Lỗi lưu Cloud: " + e.message, "error"); }
+            } else {
+                localStorage.setItem('totalIncome', totalIncome);
+                localStorage.setItem('webhookUrl', webhookUrl);
+                showToast("Đã lưu vào máy!", "success");
+            }
+            
+            // Reload nếu vừa nhập config mới
+            if(newFirebaseConfig) {
+                alert("Đã lưu cấu hình Firebase. Trang sẽ tải lại để kết nối.");
+                location.reload();
+            } else {
+                updateUI();
+                closeSettings();
+            }
+        }
+
+        function clearCustomConfig() {
+            if(confirm("Xóa cấu hình Firebase tùy chỉnh?")) {
+                localStorage.removeItem('custom_firebase_config');
+                location.reload();
+            }
+        }
+
+        function checkBudgetWarning(category, newAmount) {
+            const currentMonth = new Date().toLocaleDateString('vi-VN', {month: '2-digit', year: 'numeric'}); 
+            const spentThisMonth = transactions.filter(t => t.category === category && getMonthYear(t.date) === currentMonth).reduce((sum, t) => sum + parseFloat(t.amount), 0);
+            const limit = budgetConfig[category].budget;
+            if (spentThisMonth + newAmount > limit * 0.9) alert(`⚠️ Cảnh báo: Bạn sắp vượt ngân sách quỹ [${budgetConfig[category].name}]!`);
+        }
+        function clearAllData() {
+            if(!confirm('Xóa tất cả dữ liệu?')) return;
+            if (window.currentUser) alert("Vui lòng xóa từng món để đồng bộ an toàn.");
+            else { transactions = []; localStorage.setItem('transactions', JSON.stringify(transactions)); updateUI(); }
+        }
+
+        let myChart = null;
+        function updateChart(spentData) {
+            const canvas = document.getElementById('budgetChart');
+            if (!canvas) return;
+            const data = { labels: Object.values(budgetConfig).map(c => c.name), datasets: [{ data: Object.keys(budgetConfig).map(k => spentData[k]), backgroundColor: Object.values(budgetConfig).map(c => c.color), borderWidth: 0 }] };
+            if (myChart) myChart.destroy();
+            const ctx = canvas.getContext('2d');
+            myChart = new Chart(ctx, { type: 'doughnut', data: data, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 10 } } } }, cutout: '70%' } });
+        }
+        function showToast(message, type) {
+            const x = document.getElementById("toast"); x.className = "show " + type; x.innerText = message; setTimeout(function(){ x.className = x.className.replace("show", ""); }, 3000);
+        }
+        function copyToGoogleSheets() {
+            const filterVal = document.getElementById('monthFilter').value;
+            let dataToExport = transactions;
+            if (filterVal !== 'all') dataToExport = transactions.filter(t => getMonthYear(t.date) === filterVal);
+            let text = "Ngày\tNội dung\tHạng mục\tSố tiền\n";
+            dataToExport.forEach(t => text += `${t.date}\t${t.desc}\t${budgetConfig[t.category].name}\t${t.amount}\n`);
+            const textArea = document.createElement("textarea"); textArea.value = text; document.body.appendChild(textArea); textArea.select();
+            try { document.execCommand('copy'); showToast("Đã copy!", "success"); } catch (err) { showToast("Lỗi copy", "error"); } document.body.removeChild(textArea);
+        }
+        function downloadTemplate() {
+            if(typeof XLSX === 'undefined') { alert("Thư viện Excel chưa tải xong."); return; }
+            const ws = XLSX.utils.json_to_sheet([{ "Ngày": "01/01/2026", "Nội dung": "Mẫu", "Hạng mục": "fixed", "Số tiền": 1000 }]);
+            const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, "Mau"); XLSX.writeFile(wb, "Mau.xlsx");
+        }
+        function appendDataToExcel(input) {
+            const file = input.files[0]; if (!file) return;
+            if(typeof XLSX === 'undefined') { alert("Lỗi thư viện Excel."); return; }
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const data = new Uint8Array(e.target.result); const workbook = XLSX.read(data, {type: 'array'});
+                    const firstSheetName = workbook.SheetNames[0]; const worksheet = workbook.Sheets[firstSheetName];
+                    let existingData = XLSX.utils.sheet_to_json(worksheet);
+                    const filterVal = document.getElementById('monthFilter').value; let newData = transactions;
+                    if (filterVal !== 'all') newData = transactions.filter(t => getMonthYear(t.date) === filterVal);
+                    const newDataFormatted = newData.map(t => ({ "Ngày": t.date, "Nội dung": t.desc, "Hạng mục": budgetConfig[t.category].name, "Số tiền": parseFloat(t.amount) }));
+                    const combinedData = existingData.concat(newDataFormatted); const newWs = XLSX.utils.json_to_sheet(combinedData);
+                    const newWb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(newWb, newWs, "Chi Tieu Gop"); XLSX.writeFile(newWb, "Chi_Tieu_Cap_Nhat.xlsx");
+                    input.value = ''; showToast("Đã xuất file gộp thành công!", "success");
+                } catch(err) { console.error(err); alert("Lỗi đọc file Excel."); }
+            }; reader.readAsArrayBuffer(file);
+        }
+        const amountInput = document.getElementById('amount'); const suggestionBox = document.getElementById('amountSuggestions');
+        amountInput.addEventListener('input', function() {
+            const val = parseInt(this.value.replace(/[^0-9]/g, ''));
+            if (!val) { suggestionBox.classList.add('hidden'); return; }
+            const m = [1000, 10000, 100000, 1000000]; let html = '';
+            m.forEach(x => { const r = val * x; html += `<div class="p-2 hover:bg-slate-100 cursor-pointer text-sm" onclick="document.getElementById('amount').value=${r};this.parentElement.classList.add('hidden')">${formatMoney(r)}</div>`; });
+            suggestionBox.innerHTML = html; suggestionBox.classList.remove('hidden');
+        });
+        
+        // Cải thiện trải nghiệm đóng modal trên mobile
+        window.onclick = function(event) {
+            const modals = [document.getElementById('settingsModal'), document.getElementById('loginModal')];
+            modals.forEach(m => {
+                if (event.target == m) m.style.display = "none";
+            });
+        }
+        
+        document.addEventListener('click', (e) => { if(!amountInput.contains(e.target)) suggestionBox.classList.add('hidden'); });
+        if(!window.isFirebaseReady) updateUI();
+    </script>
+</body>
+</html>
